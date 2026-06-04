@@ -164,9 +164,39 @@ Do not use any other field names.
             { new: true }
         );
 
+        // Create action items, skipping duplicates
+        const generatedActionItems = structuredOutput.actionItems || [];
+        const createdCount = { new: 0, skipped: 0 };
+
+        for (const actionItemData of generatedActionItems) {
+            const existingActionItem = await ActionItem.findOne({
+                meeting_id: id,
+                task: actionItemData.task
+            });
+
+            if (existingActionItem) {
+                createdCount.skipped++;
+                continue;
+            }
+
+            await ActionItem.create({
+                meeting_id: id,
+                assignee: actionItemData.assignee,
+                task: actionItemData.task,
+                status: actionItemData.status || "Pending",
+                created_at: new Date()
+            });
+            createdCount.new++;
+        }
+
         res.status(200).json({
             success: true,
-            data: structuredOutput
+            data: structuredOutput,
+            actionItems: {
+                total: generatedActionItems.length,
+                created: createdCount.new,
+                skipped: createdCount.skipped
+            }
         });
     } catch (error) {
         console.error(error);
