@@ -17,24 +17,72 @@ const app = express();
 app.use(express.json());
 
 app.post("/api/meetings", async (req, res) => {
-    // Need to ingest the transcripts, and create the meeting ID + structured output for that + when it was created + zod at the end.
-
     // TODO: Validation required with ZOD.
     try {
         const data = req.body;
-        console.log(data);
         const meetingPayload = data.meetingPayload;
-        console.log(meetingPayload);
-        const systemPrompt = `
-        You are an expert project operations analyzer.
 
-        Extract:
-        - summaries
-        - action items
-        - decisions
-        - follow up suggestions
+        const meeting = await Meeting.create({
+            transcripts: meetingPayload
+        });
 
-        Every item MUST include timestamp citations from the transcript.
+        res.status(200).json({
+            success: true,
+            data: meeting
+        });
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.get("/api/meetings/:id", async (req, res) => {
+    // TODO: Add validations
+    const id = req.params.id;
+
+    const all_meetings = await Meeting.findById(id);
+
+    res.status(200).json({
+        all_meetings
+    });
+});
+
+app.get("/api/meetings/", async (req, res) => {
+    // TODO: Adding validations, pagination and filtering support.
+    const all_meetings = await Meeting.find({});
+
+    res.status(200).json({
+        all_meetings
+    });
+});
+
+app.get("/api/meetings/:id/analyze", async (req, res) => {
+    // TODO: Adding validations.
+    const id = req.params.id;
+
+    const meeting_analysis = await Meeting.findById({ id });
+    res.status(200).json({
+        meeting_analysis
+    });
+});
+
+app.post("/api/meetings/:id/analyze", async (req, res) => {
+    const id = req.params.id;
+
+    const systemPrompt = `
+    You are an expert project operations analyzer.
+
+    Extract:
+    - summaries
+    - action items
+    - decisions
+    - follow up suggestions
+
+    Every item MUST include timestamp citations from the transcript.
 Return JSON in EXACTLY this structure:
 
 {
@@ -83,7 +131,19 @@ Return JSON in EXACTLY this structure:
 }
 
 Do not use any other field names.
-        `;
+    `;
+
+    try {
+        const meeting = await Meeting.findById(id);
+
+        if (!meeting) {
+            return res.status(404).json({
+                success: false,
+                message: "Meeting not found"
+            });
+        }
+
+        const meetingPayload = meeting.transcripts;
 
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
@@ -94,18 +154,15 @@ Do not use any other field names.
                 temperature: 0
             }
         });
-        console.log(response.text);
+
         const rawJson = JSON.parse(response.text);
-        const structuredOutput =
-            MeetingIntelligenceSchema.parse(rawJson);
+        const structuredOutput = MeetingIntelligenceSchema.parse(rawJson);
 
-        console.log(structuredOutput.summary);
-        console.log(structuredOutput.actionItems);
-
-        const meeting = await Meeting.create({
-            transcripts: meetingPayload,
-            stuctured_output: structuredOutput
-        });
+        const updatedMeeting = await Meeting.findByIdAndUpdate(
+            id,
+            { stuctured_output: structuredOutput },
+            { new: true }
+        );
 
         res.status(200).json({
             success: true,
@@ -119,45 +176,6 @@ Do not use any other field names.
             error: error.message
         });
     }
-});
-
-app.get("/api/meetings/:id", async (req, res) => {
-    // TODO: Add validations
-    const id = req.params.id;
-
-    const all_meetings = await Meeting.findById(id);
-
-    res.status(200).json({
-        all_meetings
-    });
-});
-
-app.get("/api/meetings/", async (req, res) => {
-    // TODO: Adding validations, pagination and filtering support.
-    const all_meetings = await Meeting.find({});
-
-    res.status(200).json({
-        all_meetings
-    });
-});
-
-app.get("/api/meetings/:id/analyze", async (req, res) => {
-    // TODO: Adding validations.
-    const id = req.params.id;
-
-    const meeting_analysis = await Meeting.findById({ id });
-    res.status(200).json({
-        meeting_analysis
-    });
-});
-
-app.post("/api/meetings/:id/analyze", async (req, res) => {
-    const id = req.params.id;
-    // TODO: Move the LLM logic here.
-    //
-    res.status(200).json({
-        "msg": "Dummy call left todo"
-    });
 });
 
 
