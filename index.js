@@ -2,7 +2,7 @@ import mongoose, { mongo } from "mongoose";
 import express from "express";
 import dotenv from "dotenv";
 import { MeetingIntelligenceSchema } from "./schemas/geminiOutput.js";
-import { Meeting } from "./database.js";
+import { Meeting, ActionItem } from "./database.js";
 import { success } from "zod";
 
 dotenv.config();
@@ -11,8 +11,6 @@ import { GoogleGenAI } from "@google/genai";
 const ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY
 });
-
-console.log(process.env.GEMINI_API_KEY);
 
 const app = express();
 
@@ -141,6 +139,131 @@ app.get("/api/meetings/", async (req, res) => {
     res.status(200).json({
         all_meetings
     });
+});
+
+app.get("/api/meetings/:id/analyze", async (req, res) => {
+    // TODO: Adding validations.
+    const id = req.params.id;
+
+    const meeting_analysis = await Meeting.findById({ id });
+    res.status(200).json({
+        meeting_analysis
+    });
+});
+
+app.post("/api/meetings/:id/analyze", async (req, res) => {
+    const id = req.params.id;
+    // TODO: Move the LLM logic here.
+    //
+    res.status(200).json({
+        "msg": "Dummy call left todo"
+    });
+});
+
+
+// ACTIONABLE ITEMS :
+app.post("/api/action-items", async (req, res) => {
+    // ASSUMING THAT THIS IS FOR CREATING A TASK MANUALLY. 
+    // In this what is required is: meeting id and other details mentioned in schema.
+    const user_body = req.body;
+    // TODO: Custom time
+    const create_action_item = await ActionItem.create({
+        meeting_id: user_body.meeting_id,
+        assignee: user_body.assignee,
+        task: user_body.task,
+        status: user_body.status
+    });
+
+    res.status(200).json({
+        "msg": "Sucessfully created the action item"
+    });
+
+});
+
+app.get("/api/action-items", async (req, res) => {
+    const { status, assignee, meetingId } = req.query;
+
+    const filter = {};
+
+    if (status) {
+        filter.status = status;
+    }
+
+    if (assignee) {
+        filter.assignee = assignee;
+    }
+
+    if (meetingId) {
+        filter.meetingId = meetingId;
+    }
+
+    const actionItems = await ActionItem.find(filter);
+
+    res.status(200).json(actionItems);
+});
+
+app.patch("/api/action-items/:id/status", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // TODO: KARDENA BHAI VALIDATE
+        const validatedData = req.body;
+
+        const actionItem =
+            await ActionItem.findByIdAndUpdate(
+                id,
+                {
+                    status: validatedData.status
+                },
+                {
+                    new: true
+                }
+            );
+
+        if (!actionItem) {
+            return res.status(404).json({
+                success: false,
+                message: "Action item not found"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: actionItem
+        });
+
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.get("/api/action-items/overdue", async (req, res) => {
+    //TODO: RN user needs to do this manually
+    try {
+        const overdueActionItems = await ActionItem.find({
+            status: {
+                $ne: "COMPLETED"
+            },
+            dueDate: {
+                $lt: new Date()
+            }
+        });
+
+        return res.status(200).json({
+            success: true,
+            count: overdueActionItems.length,
+            data: overdueActionItems
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
 });
 
 app.listen(3000, () => {

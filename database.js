@@ -5,7 +5,6 @@ dotenv.config();
 
 console.log("Connecting to MongoDB...");
 mongoose.connect(process.env.MONGO_URI);
-console.log(process.env.MONGO_URI);
 
 const userSchema = new mongoose.Schema({
     userName: String,
@@ -29,7 +28,9 @@ const actionItemsSchema = new mongoose.Schema({
     assignee: String,
     task: String,
     status: String,
-    created_at: { type: Date, default: Date.now() }
+    created_at: { type: Date, default: Date.now() },
+    due_date: { type: Date, default: null }
 });
 
 export const Meeting = new mongoose.model("Meeting", meetingSchema)
+export const ActionItem = new mongoose.model("ActionItem", actionItemsSchema)
