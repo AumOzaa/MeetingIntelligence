@@ -205,20 +205,27 @@ app.get("/api/action-items", async (req, res) => {
 app.patch("/api/action-items/:id/status", async (req, res) => {
     try {
         const { id } = req.params;
+        const { status, due_date, dueDate } = req.body;
 
-        // TODO: KARDENA BHAI VALIDATE
-        const validatedData = req.body;
+        // Build update object dynamically
+        const updateFields = {};
+        if (status !== undefined) {
+            updateFields.status = status;
+        }
+        // Support both dueDate (camelCase) and due_date (snake_case) from client
+        if (dueDate !== undefined) {
+            updateFields.due_date = dueDate;
+        } else if (due_date !== undefined) {
+            updateFields.due_date = due_date;
+        }
 
-        const actionItem =
-            await ActionItem.findByIdAndUpdate(
-                id,
-                {
-                    status: validatedData.status
-                },
-                {
-                    new: true
-                }
-            );
+        const actionItem = await ActionItem.findByIdAndUpdate(
+            id,
+            { $set: updateFields },
+            {
+                new: true
+            }
+        );
 
         if (!actionItem) {
             return res.status(404).json({
@@ -241,7 +248,7 @@ app.patch("/api/action-items/:id/status", async (req, res) => {
 });
 
 app.get("/api/action-items/overdue", async (req, res) => {
-    //TODO: RN user needs to do this manually
+    // TODO: RN user needs to do this manually
     try {
         const overdueActionItems = await ActionItem.find({
             status: {
