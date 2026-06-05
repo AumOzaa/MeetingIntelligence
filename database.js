@@ -14,7 +14,7 @@ const userSchema = new mongoose.Schema({
 
 const meetingSchema = new mongoose.Schema({
     transcripts: Object,
-    stuctured_output: Object,
+    structured_output: Object,
     created_at: { type: Date, default: Date.now() }
 });
 
@@ -22,7 +22,7 @@ const actionItemsSchema = new mongoose.Schema({
     meeting_id: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'meetingSchema',
-        require: true
+        required: true
     }],
 
     assignee: String,

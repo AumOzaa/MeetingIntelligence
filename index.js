@@ -1,13 +1,23 @@
-import mongoose, { mongo } from "mongoose";
+import mongoose from "mongoose";
 import express from "express";
 import dotenv from "dotenv";
-import { MeetingIntelligenceSchema } from "./schemas/geminiOutput.js";
+import { randomUUID } from "crypto";
+import { z } from "zod";
+import { GoogleGenAI } from "@google/genai";
 import { Meeting, ActionItem } from "./database.js";
-import { success } from "zod";
+import { MeetingIntelligenceSchema } from "./schemas/geminiOutput.js";
+import { validate } from "./validation/middleware.js";
+import {
+    CreateMeetingRequestSchema,
+    GetMeetingByIdRequestSchema,
+    CreateActionItemRequestSchema,
+    UpdateActionItemStatusSchema,
+    GetActionItemsQuerySchema,
+    ObjectIdSchema
+} from "./validation/schemas.js";
 
 dotenv.config();
 
-import { GoogleGenAI } from "@google/genai";
 const ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY
 });
@@ -16,131 +26,181 @@ const app = express();
 
 app.use(express.json());
 
-app.post("/api/meetings", async (req, res) => {
-    // TODO: Validation required with ZOD.
+// Helper function to send standardized error response
+const sendError = (res, code, message, traceId = randomUUID()) => {
+    return res.status(400).json({
+        traceId,
+        success: false,
+        error: {
+            code,
+            message
+        }
+    });
+};
+
+// Helper function to send standardized success response
+const sendSuccess = (res, data, traceId = randomUUID()) => {
+    return res.status(200).json({
+        traceId,
+        success: true,
+        data
+    });
+};
+
+// ==================== MEETING ROUTES ====================
+
+// POST /api/meetings - Create a new meeting
+app.post("/api/meetings", validate(CreateMeetingRequestSchema, "body"), async (req, res) => {
     try {
-        const data = req.body;
-        const meetingPayload = data.meetingPayload;
+        const meetingPayload = req.body;
 
         const meeting = await Meeting.create({
             transcripts: meetingPayload
         });
 
-        res.status(200).json({
-            success: true,
-            data: meeting
-        });
+        sendSuccess(res, meeting, req.traceId);
     } catch (error) {
         console.error(error);
-
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        sendError(res, "INTERNAL_ERROR", "Failed to create meeting");
     }
 });
 
-app.get("/api/meetings/:id", async (req, res) => {
-    // TODO: Add validations
-    const id = req.params.id;
+// GET /api/meetings/:id - Get a meeting by ID
+app.get("/api/meetings/:id", validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
+    try {
+        const id = req.params.id;
 
-    const all_meetings = await Meeting.findById(id);
+        const meeting = await Meeting.findById(id);
 
-    res.status(200).json({
-        all_meetings
-    });
+        if (!meeting) {
+            return sendError(res, "NOT_FOUND", "Meeting not found", req.traceId);
+        }
+
+        sendSuccess(res, { meeting }, req.traceId);
+    } catch (error) {
+        console.error(error);
+        sendError(res, "INTERNAL_ERROR", "Failed to fetch meeting", req.traceId);
+    }
 });
 
-app.get("/api/meetings/", async (req, res) => {
-    // TODO: Adding validations, pagination and filtering support.
-    const all_meetings = await Meeting.find({});
+// GET /api/meetings - Get all meetings (with pagination and filtering)
+app.get("/api/meetings", async (req, res) => {
+    try {
+        const { limit = 10, page = 1, status, assignee } = req.query;
 
-    res.status(200).json({
-        all_meetings
-    });
+        const filter = {};
+        if (status) filter.status = status;
+        if (assignee) filter.assignee = assignee;
+
+        const skip = (page - 1) * limit;
+
+        const [meetings, total] = await Promise.all([
+            Meeting.find(filter).limit(parseInt(limit)).skip(skip),
+            Meeting.countDocuments(filter)
+        ]);
+
+        sendSuccess(res, {
+            meetings,
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / limit)
+            }
+        }, req.traceId);
+    } catch (error) {
+        console.error(error);
+        sendError(res, "INTERNAL_ERROR", "Failed to fetch meetings", req.traceId);
+    }
 });
 
-app.get("/api/meetings/:id/analyze", async (req, res) => {
-    // TODO: Adding validations.
-    const id = req.params.id;
+// GET /api/meetings/:id/analyze - Get meeting analysis
+app.get("/api/meetings/:id/analyze", validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
+    try {
+        const id = req.params.id;
 
-    const meeting_analysis = await Meeting.findById({ id });
-    res.status(200).json({
-        meeting_analysis
-    });
+        const meeting = await Meeting.findById(id);
+
+        if (!meeting) {
+            return sendError(res, "NOT_FOUND", "Meeting not found", req.traceId);
+        }
+
+        sendSuccess(res, { analysis: meeting.stuctured_output }, req.traceId);
+    } catch (error) {
+        console.error(error);
+        sendError(res, "INTERNAL_ERROR", "Failed to fetch meeting analysis", req.traceId);
+    }
 });
 
-app.post("/api/meetings/:id/analyze", async (req, res) => {
+// POST /api/meetings/:id/analyze - Analyze meeting with Gemini
+app.post("/api/meetings/:id/analyze", validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
     const id = req.params.id;
 
     const systemPrompt = `
-    You are an expert project operations analyzer.
+  You are an expert project operations analyzer.
 
-    Extract:
-    - summaries
-    - action items
-    - decisions
-    - follow up suggestions
+  Extract:
+  - summaries
+  - action items
+  - decisions
+  - follow up suggestions
 
-    Every item MUST include timestamp citations from the transcript.
-Return JSON in EXACTLY this structure:
+  Every item MUST include timestamp citations from the transcript.
+  Return JSON in EXACTLY this structure:
 
-{
-  "summary": [
-    {
-      "text": "string",
-      "citations": [
-        {
-          "timestamp": "00:10"
-        }
-      ]
-    }
-  ],
-  "actionItems": [
-    {
-      "task": "string",
-      "assignee": "string",
-      "status": "Pending",
-      "citations": [
-        {
-          "timestamp": "00:20"
-        }
-      ]
-    }
-  ],
-  "decisions": [
-    {
-      "decision": "string",
-      "citations": [
-        {
-          "timestamp": "00:35"
-        }
-      ]
-    }
-  ],
-  "followUpSuggestions": [
-    {
-      "suggestion": "string",
-      "citations": [
-        {
-          "timestamp": "00:35"
-        }
-      ]
-    }
-  ]
-}
+  {
+    "summary": [
+      {
+        "text": "string",
+        "citations": [
+          {
+            "timestamp": "00:10"
+          }
+        ]
+      }
+    ],
+    "actionItems": [
+      {
+        "task": "string",
+        "assignee": "string",
+        "status": "Pending",
+        "citations": [
+          {
+            "timestamp": "00:20"
+          }
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "decision": "string",
+        "citations": [
+          {
+            "timestamp": "00:35"
+          }
+        ]
+      }
+    ],
+    "followUpSuggestions": [
+      {
+        "suggestion": "string",
+        "citations": [
+          {
+            "timestamp": "00:35"
+          }
+        ]
+      }
+    ]
+  }
 
-Do not use any other field names.
-    `;
+  Do not use any other field names.
+  `;
 
     try {
         const meeting = await Meeting.findById(id);
 
         if (!meeting) {
-            return res.status(404).json({
-                success: false,
-                message: "Meeting not found"
-            });
+            return sendError(res, "NOT_FOUND", "Meeting not found", req.traceId);
         }
 
         const meetingPayload = meeting.transcripts;
@@ -160,7 +220,7 @@ Do not use any other field names.
 
         const updatedMeeting = await Meeting.findByIdAndUpdate(
             id,
-            { stuctured_output: structuredOutput },
+            { structured_output: structuredOutput },
             { new: true }
         );
 
@@ -189,73 +249,69 @@ Do not use any other field names.
             createdCount.new++;
         }
 
-        res.status(200).json({
-            success: true,
-            data: structuredOutput,
+        sendSuccess(res, {
+            structuredOutput,
             actionItems: {
                 total: generatedActionItems.length,
                 created: createdCount.new,
                 skipped: createdCount.skipped
             }
-        });
+        }, req.traceId);
     } catch (error) {
         console.error(error);
+        if (error instanceof z.ZodError) {
+            return sendError(res, "VALIDATION_ERROR", error.errors[0]?.message || "Validation failed", req.traceId);
+        }
+        sendError(res, "INTERNAL_ERROR", "Failed to analyze meeting", req.traceId);
+    }
+});
 
-        res.status(500).json({
-            success: false,
-            error: error.message
+// ==================== ACTION ITEM ROUTES ====================
+
+// POST /api/action-items - Create a new action item
+app.post("/api/action-items", validate(CreateActionItemRequestSchema, "body"), async (req, res) => {
+    try {
+        const actionItemData = req.body;
+
+        const actionItem = await ActionItem.create({
+            meeting_id: actionItemData.meeting_id,
+            assignee: actionItemData.assignee,
+            task: actionItemData.task,
+            status: actionItemData.status
         });
+
+        sendSuccess(res, { actionItem }, req.traceId);
+    } catch (error) {
+        console.error(error);
+        sendError(res, "INTERNAL_ERROR", "Failed to create action item", req.traceId);
     }
 });
 
+// GET /api/action-items - Get action items with filtering
+app.get("/api/action-items", validate(GetActionItemsQuerySchema, "query"), async (req, res) => {
+    try {
+        const { status, assignee, meetingId } = req.query;
 
-// ACTIONABLE ITEMS :
-app.post("/api/action-items", async (req, res) => {
-    // ASSUMING THAT THIS IS FOR CREATING A TASK MANUALLY. 
-    // In this what is required is: meeting id and other details mentioned in schema.
-    const user_body = req.body;
-    // TODO: Custom time
-    const create_action_item = await ActionItem.create({
-        meeting_id: user_body.meeting_id,
-        assignee: user_body.assignee,
-        task: user_body.task,
-        status: user_body.status
-    });
+        const filter = {};
+        if (status) filter.status = status;
+        if (assignee) filter.assignee = assignee;
+        if (meetingId) filter.meetingId = meetingId;
 
-    res.status(200).json({
-        "msg": "Sucessfully created the action item"
-    });
+        const actionItems = await ActionItem.find(filter);
 
+        sendSuccess(res, actionItems, req.traceId);
+    } catch (error) {
+        console.error(error);
+        sendError(res, "INTERNAL_ERROR", "Failed to fetch action items", req.traceId);
+    }
 });
 
-app.get("/api/action-items", async (req, res) => {
-    const { status, assignee, meetingId } = req.query;
-
-    const filter = {};
-
-    if (status) {
-        filter.status = status;
-    }
-
-    if (assignee) {
-        filter.assignee = assignee;
-    }
-
-    if (meetingId) {
-        filter.meetingId = meetingId;
-    }
-
-    const actionItems = await ActionItem.find(filter);
-
-    res.status(200).json(actionItems);
-});
-
-app.patch("/api/action-items/:id/status", async (req, res) => {
+// PATCH /api/action-items/:id/status - Update action item status
+app.patch("/api/action-items/:id/status", validate(UpdateActionItemStatusSchema, "all"), async (req, res) => {
     try {
         const { id } = req.params;
         const { status, due_date, dueDate } = req.body;
 
-        // Build update object dynamically
         const updateFields = {};
         if (status !== undefined) {
             updateFields.status = status;
@@ -270,33 +326,22 @@ app.patch("/api/action-items/:id/status", async (req, res) => {
         const actionItem = await ActionItem.findByIdAndUpdate(
             id,
             { $set: updateFields },
-            {
-                new: true
-            }
+            { new: true }
         );
 
         if (!actionItem) {
-            return res.status(404).json({
-                success: false,
-                message: "Action item not found"
-            });
+            return sendError(res, "NOT_FOUND", "Action item not found", req.traceId);
         }
 
-        return res.status(200).json({
-            success: true,
-            data: actionItem
-        });
-
+        sendSuccess(res, actionItem, req.traceId);
     } catch (error) {
-        return res.status(400).json({
-            success: false,
-            error: error.message
-        });
+        console.error(error);
+        sendError(res, "INTERNAL_ERROR", "Failed to update action item", req.traceId);
     }
 });
 
+// GET /api/action-items/overdue - Get overdue action items
 app.get("/api/action-items/overdue", async (req, res) => {
-    // TODO: RN user needs to do this manually
     try {
         const overdueActionItems = await ActionItem.find({
             status: {
@@ -307,20 +352,17 @@ app.get("/api/action-items/overdue", async (req, res) => {
             }
         });
 
-        return res.status(200).json({
-            success: true,
+        sendSuccess(res, {
             count: overdueActionItems.length,
             data: overdueActionItems
-        });
-
+        }, req.traceId);
     } catch (error) {
-        return res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        console.error(error);
+        sendError(res, "INTERNAL_ERROR", "Failed to fetch overdue action items", req.traceId);
     }
 });
 
+// Start server
 app.listen(3000, () => {
-    console.log("http://localhost:3000");
+    console.log("Server running on http://localhost:3000");
 });
