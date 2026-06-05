@@ -24,8 +24,8 @@ jobs:
 
       - name: Running Tests
         run: npm test
-        env: ${{ secrets.JWT_SECRET  }}
-
+        env:
+        JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -37,7 +37,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and Push
-        uses: docker/build-push-action@v6
+        uses: dockegitr/build-push-action@v6
         with:
           context: .
           push: true
