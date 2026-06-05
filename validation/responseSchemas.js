@@ -44,7 +44,7 @@ export const MeetingIntelligenceSchema = z.object({
 export const MeetingResponseSchema = z.object({
   _id: z.string(),
   transcripts: z.any(),
-  stuctured_output: z.any().optional(),
+  structured_output: z.any().optional(),
   created_at: z.string().optional()
 });
 

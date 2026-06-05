@@ -22,6 +22,8 @@ const ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY
 });
 
+export { ai };
+
 const app = express();
 
 app.use(express.json());
@@ -58,7 +60,11 @@ app.post("/api/meetings", validate(CreateMeetingRequestSchema, "body"), async (r
             transcripts: meetingPayload
         });
 
-        sendSuccess(res, meeting, req.traceId);
+        res.status(201).json({
+            traceId: req.traceId,
+            success: true,
+            data: meeting
+        });
     } catch (error) {
         console.error(error);
         sendError(res, "INTERNAL_ERROR", "Failed to create meeting");
@@ -345,9 +351,9 @@ app.get("/api/action-items/overdue", async (req, res) => {
     try {
         const overdueActionItems = await ActionItem.find({
             status: {
-                $ne: "COMPLETED"
+                $ne: "Completed"
             },
-            dueDate: {
+            due_date: {
                 $lt: new Date()
             }
         });
@@ -366,3 +372,5 @@ app.get("/api/action-items/overdue", async (req, res) => {
 app.listen(3000, () => {
     console.log("Server running on http://localhost:3000");
 });
+
+export default app;
