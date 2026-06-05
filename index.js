@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import express from "express";
 import dotenv from "dotenv";
+import cron from "node-cron";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { GoogleGenAI } from "@google/genai";
@@ -9,6 +10,7 @@ import { MeetingIntelligenceSchema } from "./schemas/geminiOutput.js";
 import { validate, authenticate } from "./validation/middleware.js";
 import bcrypt from "bcryptjs";
 import jwt from 'jsonwebtoken';
+import TelegramBot from "node-telegram-bot-api";
 import {
     CreateMeetingRequestSchema,
     GetMeetingByIdRequestSchema,
@@ -26,6 +28,9 @@ const ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY
 });
 
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
+    polling: false
+});
 export { ai };
 
 const app = express();
@@ -353,14 +358,22 @@ app.patch("/api/action-items/:id/status", authenticate, validate(UpdateActionIte
 // GET /api/action-items/overdue - Get overdue action items
 app.get("/api/action-items/overdue", authenticate, async (req, res) => {
     try {
-        const overdueActionItems = await ActionItem.find({
-            status: {
-                $ne: "Completed"
-            },
+        const dueItems = await ActionItem.find({
+            status: { $ne: "Completed" },
             due_date: {
+                $ne: null,
                 $lt: new Date()
-            }
+            },
+            reminder_sent: { $ne: true }
         });
+        // const overdueActionItems = await ActionItem.find({
+        //     status: {
+        //         $ne: "Completed"
+        //     },
+        //     due_date: {
+        //         $lt: new Date()
+        //     }
+        // });
 
         sendSuccess(res, {
             count: overdueActionItems.length,
@@ -475,6 +488,82 @@ app.post("/api/auth/login", async (req, res) => {
     }
 });
 
+app.get("/api/evaluation", (req, res) => {
+    const response =
+    {
+        "candidateName": "Aum Oza",
+        "email": "aumoza404@gmail.com",
+        "repositoryUrl": "https://github.com/AumOzaa/MeetingIntelligence.git", "deployedUrl": "https://example.com",
+        "externalIntegration": "Telegram Bot API",
+        "features": [
+            "Authentication",
+            "AI Analysis",
+            "Reminder Scheduler"
+        ]
+    }
+
+    res.status(200).send(response);
+});
+
+await mongoose.connect(process.env.MONGO_URI);
+
+cron.schedule("* * * * *", async () => {
+    console.log("Running reminder job");
+
+    try {
+        await processReminders();
+    } catch (error) {
+        console.error(error);
+    }
+});
+
+app.get("/telegram-test", async (req, res) => {
+    await bot.sendMessage(
+        process.env.TELEGRAM_CHAT_ID,
+        "🚀 Telegram integration working!"
+    );
+    res.json({
+        success: true
+    });
+});
+
+async function processReminders() {
+    const dueItems = await ActionItem.find({
+        status: {
+            $ne: "Completed"
+        },
+        due_date: {
+            $ne: null,
+            $lt: new Date()
+        },
+        reminder_sent: {
+            $ne: true
+        }
+    });
+
+    for (const item of dueItems) {
+        const message = `
+🔔 Reminder
+
+Task: ${item.task}
+Assigned To: ${item.assignee}
+Due Date: ${item.due_date.toISOString().split("T")[0]}
+`;
+
+        await bot.sendMessage(
+            process.env.TELEGRAM_CHAT_ID,
+            message
+        );
+
+        item.reminder_sent = true;
+        await item.save();
+    }
+
+    console.log(`Reminder job completed. Sent ${dueItems.length} reminders.`);
+}
+app.listen(3000, () => {
+    console.log("Server running");
+});
 // Start server
 app.listen(3000, () => {
     console.log("Server running on http://localhost:3000");

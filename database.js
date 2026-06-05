@@ -41,6 +41,10 @@ const actionItemsSchema = new mongoose.Schema({
     task: String,
     status: String,
     created_at: { type: Date, default: Date.now() },
+    reminder_sent: {
+        type: Boolean,
+        default: false
+    },
     due_date: { type: Date, default: null },
     dueDate: { type: Date, default: null }
 });
