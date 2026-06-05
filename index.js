@@ -792,7 +792,7 @@ app.get("/api/evaluation", (req, res) => {
     res.status(200).send(response);
 });
 
-await mongoose.connect(process.env.MONGO_URI);
+// await mongoose.connect(process.env.MONGO_URI);
 
 cron.schedule("* * * * *", async () => {
     logger.info("Running reminder job");

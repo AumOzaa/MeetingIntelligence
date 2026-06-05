@@ -45,8 +45,7 @@ const actionItemsSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
-    due_date: { type: Date, default: null },
-    dueDate: { type: Date, default: null }
+    due_date: { type: Date, default: null }
 });
 
 // Export models
