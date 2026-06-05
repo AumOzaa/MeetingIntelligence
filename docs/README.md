@@ -238,17 +238,17 @@ Multiple layers prevent hallucinations:
 
 | Scenario | Description | Status |
 |----------|-------------|--------|
-| Create meeting | Valid meeting with all required fields | ✅ PASS |
-| Validation failure | Missing required fields (title, transcript) | ✅ PASS |
+| Create meeting | Valid meeting with all required fields | PASS |
+| Validation failure | Missing required fields (title, transcript) | PASS |
 
 ### Action Item Tests (`tests/actionItems.test.js`)
 
 | Scenario | Description | Status |
 |----------|-------------|--------|
-| Update status | Change status from "Pending" to "Completed" | ✅ PASS |
-| Update due date | Set `dueDate` field on action item | ⚠️ FAILED - Schema issue |
-| Overdue items | Filter items with past due dates | ⚠️ FAILED - Field naming issue |
-| Filter by status | Query by `status=Completed` | ✅ PASS |
+| Update status | Change status from "Pending" to "Completed" | PASS |
+| Update due date | Set `dueDate` field on action item | FAILED - Schema issue |
+| Overdue items | Filter items with past due dates | FAILED - Field naming issue |
+| Filter by status | Query by `status=Completed` | PASS |
 
 ## Edge Cases Considered
 

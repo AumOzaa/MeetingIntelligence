@@ -17,15 +17,15 @@ A Node.js Express API that uses Google's Gemini AI to analyze meeting transcript
 
 ## Features
 
-✨ **Core Capabilities**
-- 📝 Meeting transcript storage and management
-- 🤖 AI-powered analysis using Google Gemini 2.5 Flash
-- 📋 Automatic action item extraction with assignees and due dates
-- 🔐 User authentication with JWT tokens
-- 📱 Telegram reminders for overdue tasks
-- 📊 Swagger API documentation
-- 🔍 Comprehensive logging with trace IDs
-- ✅ Input validation with Zod schemas
+**Core Capabilities**
+- Meeting transcript storage and management
+- AI-powered analysis using Google Gemini 2.5 Flash
+- Automatic action item extraction with assignees and due dates
+- User authentication with JWT tokens
+- Telegram reminders for overdue tasks
+- Swagger API documentation
+- Comprehensive logging with trace IDs
+- Input validation with Zod schemas
 
 ---
 
@@ -60,8 +60,8 @@ A Node.js Express API that uses Google's Gemini AI to analyze meeting transcript
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/meeting-intelligence.git
-cd meeting-intelligence
+git clone https://github.com/AumOzaa/MeetingIntelligence
+cd MeetingIntelligence
 
 # Install dependencies
 npm install
@@ -175,10 +175,7 @@ cat .env | grep -E "GEMINI_API_KEY|MONGO_URI|TELEGRAM_BOT_TOKEN"
 
 ```bash
 # Development mode (with auto-reload)
-npm run dev
-
-# Production mode
-npm start
+node index.js
 
 # Server runs on http://localhost:3000
 ```
@@ -229,32 +226,7 @@ tail -f logs/error.log
 ---
 
 ## Deployment
-
-### Heroku Deployment
-
-```bash
-# Install Heroku CLI
-brew tap heroku/brew && brew install heroku
-
-# Login to Heroku
-heroku login
-
-# Create app
-heroku create meeting-intelligence-api
-
-# Set environment variables
-heroku config:set GEMINI_API_KEY=your_key
-heroku config:set MONGO_URI=your_mongodb_uri
-heroku config:set JWT_SECRET=your_secret
-heroku config:set TELEGRAM_BOT_TOKEN=your_token
-heroku config:set TELEGRAM_CHAT_ID=your_chat_id
-
-# Deploy
-git push heroku main
-
-# View logs
-heroku logs --tail
-```
+- ON AWS Deployment
 
 ### Docker Deployment
 
@@ -279,58 +251,6 @@ CMD ["node", "index.js"]
 docker build -t meeting-intelligence .
 docker run -p 3000:3000 --env-file .env meeting-intelligence
 ```
-
-### AWS ECS Deployment
-
-```bash
-# Push to ECR
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 123456789.dkr.ecr.us-east-1.amazonaws.com
-
-docker build -t meeting-intelligence .
-docker tag meeting-intelligence:latest 123456789.dkr.ecr.us-east-1.amazonaws.com/meeting-intelligence:latest
-docker push 123456789.dkr.ecr.us-east-1.amazonaws.com/meeting-intelligence:latest
-
-# Create ECS task definition and service
-aws ecs create-service --cluster production --service-name meeting-intelligence --task-definition meeting-intelligence:1 --desired-count 2
-```
-
-### Google Cloud Run Deployment
-
-```bash
-# Deploy to Cloud Run
-gcloud run deploy meeting-intelligence \
-  --source . \
-  --region us-central1 \
-  --set-env-vars GEMINI_API_KEY=xxx,MONGO_URI=xxx
-
-# View logs
-gcloud run logs read meeting-intelligence --limit 50
-```
-
-### Environment-Specific Configuration
-
-#### Development
-```env
-NODE_ENV=development
-LOG_LEVEL=debug
-MONGO_URI=mongodb://localhost:27017/meeting-intelligence
-```
-
-#### Staging
-```env
-NODE_ENV=staging
-LOG_LEVEL=info
-MONGO_URI=mongodb+srv://user:pass@staging.mongodb.net/meeting-intelligence
-```
-
-#### Production
-```env
-NODE_ENV=production
-LOG_LEVEL=warn
-MONGO_URI=mongodb+srv://user:pass@prod.mongodb.net/meeting-intelligence
-```
-
----
 
 ## API Documentation
 
@@ -742,23 +662,6 @@ lsof -ti:3000 | xargs kill -9
 # Use different port
 PORT=3001 npm start
 ```
-
----
-
-## License
-
-ISC License - See LICENSE file for details
-
----
-
-## Support
-
-For issues and questions:
-- Check existing [GitHub Issues](https://github.com/yourusername/meeting-intelligence/issues)
-- Review [documentation](./docs)
-- Create a new issue with reproduction steps
-
----
 
 ## Changelog
 
