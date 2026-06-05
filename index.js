@@ -11,6 +11,9 @@ import { validate, authenticate } from "./validation/middleware.js";
 import bcrypt from "bcryptjs";
 import jwt from 'jsonwebtoken';
 import TelegramBot from "node-telegram-bot-api";
+import swaggerUi from "swagger-ui-express";
+import swaggerJsdoc from "swagger-jsdoc";
+import logger from "./utils/logger.js";
 import {
     CreateMeetingRequestSchema,
     GetMeetingByIdRequestSchema,
@@ -37,6 +40,94 @@ const app = express();
 
 app.use(express.json());
 
+// ==================== LOGGING MIDDLEWARE ====================
+// Logs request details including traceId, method, path, status
+app.use((req, res, next) => {
+    const traceId = randomUUID();
+    req.traceId = traceId;
+
+    const userAgent = req.get('user-agent') || '';
+    const requestInfo = {
+        traceId,
+        timestamp: new Date().toISOString(),
+        method: req.method,
+        path: req.path,
+        query: req.query,
+        body: req.body,
+        userAgent
+    };
+
+    logger.info(`Request received - ${req.method} ${req.path}`, { ...requestInfo });
+
+    // Log response when it's sent
+    res.on('finish', () => {
+        const responseInfo = {
+            traceId,
+            timestamp: new Date().toISOString(),
+            statusCode: res.statusCode,
+            status: res.statusCode >= 200 && res.statusCode < 300 ? 'success' : 'error',
+            method: req.method,
+            path: req.path
+        };
+
+        if (res.statusCode >= 500) {
+            logger.error(`Response sent - ${req.method} ${req.path} - ${res.statusCode}`, responseInfo);
+        } else if (res.statusCode >= 400) {
+            logger.warn(`Response sent - ${req.method} ${req.path} - ${res.statusCode}`, responseInfo);
+        } else {
+            logger.info(`Response sent - ${req.method} ${req.path} - ${res.statusCode}`, responseInfo);
+        }
+    });
+
+    next();
+});
+
+// Error handling middleware with logging
+app.use((err, req, res, next) => {
+    const traceId = req.traceId || randomUUID();
+
+    logger.error({
+        message: err.message,
+        stack: err.stack,
+        traceId,
+        method: req.method,
+        path: req.path,
+        timestamp: new Date().toISOString()
+    });
+
+    res.status(err.statusCode || 500).json({
+        traceId,
+        success: false,
+        error: {
+            code: err.statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR',
+            message: process.env.NODE_ENV === 'production' ? 'An error occurred' : err.message
+        }
+    });
+});
+
+const swaggerSpec = swaggerJsdoc({
+    definition: {
+        openapi: "3.0.0",
+        info: {
+            title: "Meeting Intelligence API",
+            version: "2.0.0",
+            description: "API for meeting transcription, AI analysis, and action item tracking",
+        },
+        servers: [
+            {
+                url: "http://localhost:3000",
+            },
+        ],
+    },
+    apis: ["./index.js"],
+});
+
+app.use(
+    "/api-docs",
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec)
+);
+
 // Helper function to send standardized error response
 const sendError = (res, code, message, traceId = randomUUID()) => {
     return res.status(400).json({
@@ -61,6 +152,15 @@ const sendSuccess = (res, data, traceId = randomUUID()) => {
 // ==================== MEETING ROUTES ====================
 
 // POST /api/meetings - Create a new meeting
+/**
+ * @swagger
+ * /api/meetings:
+ *   POST:
+ *     summary: Create meeting and add transcripts.
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.post("/api/meetings", authenticate, validate(CreateMeetingRequestSchema, "body"), async (req, res) => {
     try {
         const meetingPayload = req.body;
@@ -69,18 +169,38 @@ app.post("/api/meetings", authenticate, validate(CreateMeetingRequestSchema, "bo
             transcripts: meetingPayload
         });
 
+        logger.info(`Meeting created successfully`, {
+            traceId: req.traceId,
+            meetingId: meeting._id,
+            participants: meetingPayload.participants.length
+        });
+
         res.status(201).json({
             traceId: req.traceId,
             success: true,
             data: meeting
         });
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Failed to create meeting",
+            error: error.message,
+            stack: error.stack,
+            traceId: req.traceId
+        });
         sendError(res, "INTERNAL_ERROR", "Failed to create meeting");
     }
 });
 
 // GET /api/meetings/:id - Get a meeting by ID
+/**
+ * @swagger
+ * /api/meetings/:id:
+ *   get:
+ *     summary: Getting meetings with id.
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.get("/api/meetings/:id", authenticate, validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
     try {
         const id = req.params.id;
@@ -88,17 +208,31 @@ app.get("/api/meetings/:id", authenticate, validate(GetMeetingByIdRequestSchema,
         const meeting = await Meeting.findById(id);
 
         if (!meeting) {
+            logger.warn(`Meeting not found - ID: ${id}`, { traceId: req.traceId });
             return sendError(res, "NOT_FOUND", "Meeting not found", req.traceId);
         }
 
         sendSuccess(res, { meeting }, req.traceId);
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Failed to fetch meeting",
+            error: error.message,
+            traceId: req.traceId
+        });
         sendError(res, "INTERNAL_ERROR", "Failed to fetch meeting", req.traceId);
     }
 });
 
 // GET /api/meetings - Get all meetings (with pagination and filtering)
+/**
+ * @swagger
+ * /api/meetings:
+ *   get:
+ *     summary: Getting meetings.
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.get("/api/meetings", authenticate, async (req, res) => {
     try {
         const { limit = 10, page = 1, status, assignee } = req.query;
@@ -124,12 +258,25 @@ app.get("/api/meetings", authenticate, async (req, res) => {
             }
         }, req.traceId);
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Failed to fetch meetings",
+            error: error.message,
+            traceId: req.traceId
+        });
         sendError(res, "INTERNAL_ERROR", "Failed to fetch meetings", req.traceId);
     }
 });
 
 // GET /api/meetings/:id/analyze - Get meeting analysis
+/**
+ * @swagger
+ * /api/meetings/:id/analyze:
+ *   get:
+ *     summary: Getting meetings summary with id.
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.get("/api/meetings/:id/analyze", authenticate, validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
     try {
         const id = req.params.id;
@@ -137,17 +284,31 @@ app.get("/api/meetings/:id/analyze", authenticate, validate(GetMeetingByIdReques
         const meeting = await Meeting.findById(id);
 
         if (!meeting) {
+            logger.warn(`Meeting not found - ID: ${id}`, { traceId: req.traceId });
             return sendError(res, "NOT_FOUND", "Meeting not found", req.traceId);
         }
 
-        sendSuccess(res, { analysis: meeting.stuctured_output }, req.traceId);
+        sendSuccess(res, { analysis: meeting.structured_output }, req.traceId);
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Failed to fetch meeting analysis",
+            error: error.message,
+            traceId: req.traceId
+        });
         sendError(res, "INTERNAL_ERROR", "Failed to fetch meeting analysis", req.traceId);
     }
 });
 
 // POST /api/meetings/:id/analyze - Analyze meeting with Gemini
+/**
+ * @swagger
+ * /api/meetings:
+ *   post:
+ *     summary: Generate AI analysis of a meeting id.
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.post("/api/meetings/:id/analyze", authenticate, validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
     const id = req.params.id;
 
@@ -215,6 +376,7 @@ app.post("/api/meetings/:id/analyze", authenticate, validate(GetMeetingByIdReque
         const meeting = await Meeting.findById(id);
 
         if (!meeting) {
+            logger.warn(`Meeting not found - ID: ${id}`, { traceId: req.traceId });
             return sendError(res, "NOT_FOUND", "Meeting not found", req.traceId);
         }
 
@@ -264,6 +426,13 @@ app.post("/api/meetings/:id/analyze", authenticate, validate(GetMeetingByIdReque
             createdCount.new++;
         }
 
+        logger.info(`Meeting analysis completed`, {
+            traceId: req.traceId,
+            meetingId: id,
+            actionItemsCreated: createdCount.new,
+            actionItemsSkipped: createdCount.skipped
+        });
+
         sendSuccess(res, {
             structuredOutput,
             actionItems: {
@@ -273,7 +442,12 @@ app.post("/api/meetings/:id/analyze", authenticate, validate(GetMeetingByIdReque
             }
         }, req.traceId);
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Failed to analyze meeting",
+            error: error.message,
+            stack: error.stack,
+            traceId: req.traceId
+        });
         if (error instanceof z.ZodError) {
             return sendError(res, "VALIDATION_ERROR", error.errors[0]?.message || "Validation failed", req.traceId);
         }
@@ -284,6 +458,15 @@ app.post("/api/meetings/:id/analyze", authenticate, validate(GetMeetingByIdReque
 // ==================== ACTION ITEM ROUTES ====================
 
 // POST /api/action-items - Create a new action item
+/**
+ * @swagger
+ * /api/action-items:
+ *   post:
+ *     summary: Create action item
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.post("/api/action-items", authenticate, validate(CreateActionItemRequestSchema, "body"), async (req, res) => {
     try {
         const actionItemData = req.body;
@@ -295,14 +478,34 @@ app.post("/api/action-items", authenticate, validate(CreateActionItemRequestSche
             status: actionItemData.status
         });
 
+        logger.info(`Action item created`, {
+            traceId: req.traceId,
+            actionItemId: actionItem._id,
+            assignee: actionItemData.assignee,
+            meetingId: actionItemData.meeting_id
+        });
+
         sendSuccess(res, { actionItem }, req.traceId);
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Failed to create action item",
+            error: error.message,
+            traceId: req.traceId
+        });
         sendError(res, "INTERNAL_ERROR", "Failed to create action item", req.traceId);
     }
 });
 
 // GET /api/action-items - Get action items with filtering
+/**
+ * @swagger
+ * /api/meetings:
+ *   get:
+ *     summary: Get action items
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.get("/api/action-items", authenticate, validate(GetActionItemsQuerySchema, "query"), async (req, res) => {
     try {
         const { status, assignee, meetingId } = req.query;
@@ -316,12 +519,25 @@ app.get("/api/action-items", authenticate, validate(GetActionItemsQuerySchema, "
 
         sendSuccess(res, actionItems, req.traceId);
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Failed to fetch action items",
+            error: error.message,
+            traceId: req.traceId
+        });
         sendError(res, "INTERNAL_ERROR", "Failed to fetch action items", req.traceId);
     }
 });
 
 // PATCH /api/action-items/:id/status - Update action item status
+/**
+ * @swagger
+ * /api/action-items/:id/status:
+ *   patch:
+ *     summary: Update the due date and status
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.patch("/api/action-items/:id/status", authenticate, validate(UpdateActionItemStatusSchema, "all"), async (req, res) => {
     try {
         const { id } = req.params;
@@ -345,17 +561,37 @@ app.patch("/api/action-items/:id/status", authenticate, validate(UpdateActionIte
         );
 
         if (!actionItem) {
+            logger.warn(`Action item not found - ID: ${id}`, { traceId: req.traceId });
             return sendError(res, "NOT_FOUND", "Action item not found", req.traceId);
         }
 
+        logger.info(`Action item updated`, {
+            traceId: req.traceId,
+            actionItemId: id,
+            updateFields
+        });
+
         sendSuccess(res, actionItem, req.traceId);
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Failed to update action item",
+            error: error.message,
+            traceId: req.traceId
+        });
         sendError(res, "INTERNAL_ERROR", "Failed to update action item", req.traceId);
     }
 });
 
 // GET /api/action-items/overdue - Get overdue action items
+/**
+ * @swagger
+ * /api/meetings:
+ *   get:
+ *     summary: Get overdue items and filtering.
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.get("/api/action-items/overdue", authenticate, async (req, res) => {
     try {
         const dueItems = await ActionItem.find({
@@ -366,25 +602,35 @@ app.get("/api/action-items/overdue", authenticate, async (req, res) => {
             },
             reminder_sent: { $ne: true }
         });
-        // const overdueActionItems = await ActionItem.find({
-        //     status: {
-        //         $ne: "Completed"
-        //     },
-        //     due_date: {
-        //         $lt: new Date()
-        //     }
-        // });
+
+        logger.info(`Overdue items retrieved`, {
+            traceId: req.traceId,
+            count: dueItems.length
+        });
 
         sendSuccess(res, {
-            count: overdueActionItems.length,
-            data: overdueActionItems
+            count: dueItems.length,
+            data: dueItems
         }, req.traceId);
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Failed to fetch overdue action items",
+            error: error.message,
+            traceId: req.traceId
+        });
         sendError(res, "INTERNAL_ERROR", "Failed to fetch overdue action items", req.traceId);
     }
 });
 
+/**
+ * @swagger
+ * /api/auth/register:
+ *   post:
+ *     summary: New user registration.
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.post("/api/auth/register", async (req, res) => {
     try {
 
@@ -397,6 +643,7 @@ app.post("/api/auth/register", async (req, res) => {
             });
 
         if (existingUser) {
+            logger.warn(`Registration attempt - User already exists - Email: ${validatedData.email}`, { traceId: req.traceId });
             return res.status(409).json({
                 success: false,
                 message: "User already exists"
@@ -414,6 +661,12 @@ app.post("/api/auth/register", async (req, res) => {
             password: hashedPassword
         });
 
+        logger.info(`User registered`, {
+            traceId: req.traceId,
+            userId: user._id,
+            email: validatedData.email
+        });
+
         return res.status(201).json({
             success: true,
             data: {
@@ -423,7 +676,11 @@ app.post("/api/auth/register", async (req, res) => {
         });
 
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Registration failed",
+            error: error.message,
+            traceId: req.traceId
+        });
 
         return res.status(400).json({
             success: false,
@@ -431,7 +688,15 @@ app.post("/api/auth/register", async (req, res) => {
         });
     }
 });
-
+/**
+ * @swagger
+ * /api/auth/login:
+ *   post:
+ *     summary: Login user
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.post("/api/auth/login", async (req, res) => {
     try {
 
@@ -444,6 +709,7 @@ app.post("/api/auth/login", async (req, res) => {
             });
 
         if (!user) {
+            logger.warn(`Login attempt - Invalid credentials - Email: ${validatedData.email}`, { traceId: req.traceId });
             return res.status(401).json({
                 success: false,
                 message: "Invalid credentials"
@@ -457,6 +723,7 @@ app.post("/api/auth/login", async (req, res) => {
             );
 
         if (!passwordMatches) {
+            logger.warn(`Login attempt - Invalid credentials - Email: ${validatedData.email}`, { traceId: req.traceId });
             return res.status(401).json({
                 success: false,
                 message: "Invalid credentials"
@@ -474,6 +741,12 @@ app.post("/api/auth/login", async (req, res) => {
             }
         );
 
+        logger.info(`User logged in`, {
+            traceId: req.traceId,
+            userId: user._id,
+            email: validatedData.email
+        });
+
         return res.status(200).json({
             success: true,
             token
@@ -481,13 +754,27 @@ app.post("/api/auth/login", async (req, res) => {
 
     } catch (error) {
 
+        logger.error({
+            message: "Login failed",
+            error: error.message,
+            traceId: req.traceId
+        });
+
         return res.status(400).json({
             success: false,
             error: error.message
         });
     }
 });
-
+/**
+ * @swagger
+ * /api/evaluation:
+ *   get:
+ *     summary: About me :)
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 app.get("/api/evaluation", (req, res) => {
     const response =
     {
@@ -508,12 +795,15 @@ app.get("/api/evaluation", (req, res) => {
 await mongoose.connect(process.env.MONGO_URI);
 
 cron.schedule("* * * * *", async () => {
-    console.log("Running reminder job");
-
+    logger.info("Running reminder job");
     try {
         await processReminders();
     } catch (error) {
-        console.error(error);
+        logger.error({
+            message: "Reminder job failed",
+            error: error.message,
+            stack: error.stack
+        });
     }
 });
 
@@ -559,14 +849,13 @@ Due Date: ${item.due_date.toISOString().split("T")[0]}
         await item.save();
     }
 
-    console.log(`Reminder job completed. Sent ${dueItems.length} reminders.`);
+    logger.info(`Reminder job completed`, {
+        remindersSent: dueItems.length
+    });
 }
+
 app.listen(3000, () => {
-    console.log("Server running");
-});
-// Start server
-app.listen(3000, () => {
-    console.log("Server running on http://localhost:3000");
+    logger.info("Server started on http://localhost:3000");
 });
 
 export default app;
