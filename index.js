@@ -854,7 +854,7 @@ Due Date: ${item.due_date.toISOString().split("T")[0]}
     });
 }
 
-app.listen(3000, () => {
+app.listen(3000, "0.0.0.0", () => {
     logger.info("Server started on http://localhost:3000");
 });
 
