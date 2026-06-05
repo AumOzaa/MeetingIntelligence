@@ -780,7 +780,7 @@ app.get("/api/evaluation", (req, res) => {
     {
         "candidateName": "Aum Oza",
         "email": "aumoza404@gmail.com",
-        "repositoryUrl": "https://github.com/AumOzaa/MeetingIntelligence.git", "deployedUrl": "https://example.com",
+        "repositoryUrl": "https://github.com/AumOzaa/MeetingIntelligence.git", "deployedUrl": "http://54.252.181.209:3000/api-docs/",
         "externalIntegration": "Telegram Bot API",
         "features": [
             "Authentication",
