@@ -25,7 +25,7 @@ jobs:
       - name: Running Tests
         run: npm test
         env:
-        JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
