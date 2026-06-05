@@ -1,6 +1,7 @@
 import request from "supertest";
 import { describe, it, expect, vi } from "vitest";
 
+import { getAuthHeader } from "./authHelper.js";
 import app from "../index.js";
 
 import { ai } from "../index.js";
@@ -36,6 +37,7 @@ describe("Meetings", () => {
         const response =
             await request(app)
                 .post("/api/meetings")
+                .set("Authorization", getAuthHeader())
                 .send(payload);
 
         expect(response.status)
@@ -53,6 +55,7 @@ describe("Meetings", () => {
         const response =
             await request(app)
                 .post("/api/meetings")
+                .set("Authorization", getAuthHeader())
                 .send({
                     transcript: [
                         {

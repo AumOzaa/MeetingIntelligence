@@ -4,15 +4,19 @@ import dotenv from "dotenv";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { GoogleGenAI } from "@google/genai";
-import { Meeting, ActionItem } from "./database.js";
+import { Meeting, ActionItem, User } from "./database.js";
 import { MeetingIntelligenceSchema } from "./schemas/geminiOutput.js";
-import { validate } from "./validation/middleware.js";
+import { validate, authenticate } from "./validation/middleware.js";
+import bcrypt from "bcryptjs";
+import jwt from 'jsonwebtoken';
 import {
     CreateMeetingRequestSchema,
     GetMeetingByIdRequestSchema,
     CreateActionItemRequestSchema,
     UpdateActionItemStatusSchema,
     GetActionItemsQuerySchema,
+    RegisterSchema,
+    LoginSchema,
     ObjectIdSchema
 } from "./validation/schemas.js";
 
@@ -52,7 +56,7 @@ const sendSuccess = (res, data, traceId = randomUUID()) => {
 // ==================== MEETING ROUTES ====================
 
 // POST /api/meetings - Create a new meeting
-app.post("/api/meetings", validate(CreateMeetingRequestSchema, "body"), async (req, res) => {
+app.post("/api/meetings", authenticate, validate(CreateMeetingRequestSchema, "body"), async (req, res) => {
     try {
         const meetingPayload = req.body;
 
@@ -72,7 +76,7 @@ app.post("/api/meetings", validate(CreateMeetingRequestSchema, "body"), async (r
 });
 
 // GET /api/meetings/:id - Get a meeting by ID
-app.get("/api/meetings/:id", validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
+app.get("/api/meetings/:id", authenticate, validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
     try {
         const id = req.params.id;
 
@@ -90,7 +94,7 @@ app.get("/api/meetings/:id", validate(GetMeetingByIdRequestSchema, "params"), as
 });
 
 // GET /api/meetings - Get all meetings (with pagination and filtering)
-app.get("/api/meetings", async (req, res) => {
+app.get("/api/meetings", authenticate, async (req, res) => {
     try {
         const { limit = 10, page = 1, status, assignee } = req.query;
 
@@ -121,7 +125,7 @@ app.get("/api/meetings", async (req, res) => {
 });
 
 // GET /api/meetings/:id/analyze - Get meeting analysis
-app.get("/api/meetings/:id/analyze", validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
+app.get("/api/meetings/:id/analyze", authenticate, validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
     try {
         const id = req.params.id;
 
@@ -139,7 +143,7 @@ app.get("/api/meetings/:id/analyze", validate(GetMeetingByIdRequestSchema, "para
 });
 
 // POST /api/meetings/:id/analyze - Analyze meeting with Gemini
-app.post("/api/meetings/:id/analyze", validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
+app.post("/api/meetings/:id/analyze", authenticate, validate(GetMeetingByIdRequestSchema, "params"), async (req, res) => {
     const id = req.params.id;
 
     const systemPrompt = `
@@ -275,7 +279,7 @@ app.post("/api/meetings/:id/analyze", validate(GetMeetingByIdRequestSchema, "par
 // ==================== ACTION ITEM ROUTES ====================
 
 // POST /api/action-items - Create a new action item
-app.post("/api/action-items", validate(CreateActionItemRequestSchema, "body"), async (req, res) => {
+app.post("/api/action-items", authenticate, validate(CreateActionItemRequestSchema, "body"), async (req, res) => {
     try {
         const actionItemData = req.body;
 
@@ -294,7 +298,7 @@ app.post("/api/action-items", validate(CreateActionItemRequestSchema, "body"), a
 });
 
 // GET /api/action-items - Get action items with filtering
-app.get("/api/action-items", validate(GetActionItemsQuerySchema, "query"), async (req, res) => {
+app.get("/api/action-items", authenticate, validate(GetActionItemsQuerySchema, "query"), async (req, res) => {
     try {
         const { status, assignee, meetingId } = req.query;
 
@@ -313,7 +317,7 @@ app.get("/api/action-items", validate(GetActionItemsQuerySchema, "query"), async
 });
 
 // PATCH /api/action-items/:id/status - Update action item status
-app.patch("/api/action-items/:id/status", validate(UpdateActionItemStatusSchema, "all"), async (req, res) => {
+app.patch("/api/action-items/:id/status", authenticate, validate(UpdateActionItemStatusSchema, "all"), async (req, res) => {
     try {
         const { id } = req.params;
         const { status, due_date, dueDate } = req.body;
@@ -347,7 +351,7 @@ app.patch("/api/action-items/:id/status", validate(UpdateActionItemStatusSchema,
 });
 
 // GET /api/action-items/overdue - Get overdue action items
-app.get("/api/action-items/overdue", async (req, res) => {
+app.get("/api/action-items/overdue", authenticate, async (req, res) => {
     try {
         const overdueActionItems = await ActionItem.find({
             status: {
@@ -365,6 +369,109 @@ app.get("/api/action-items/overdue", async (req, res) => {
     } catch (error) {
         console.error(error);
         sendError(res, "INTERNAL_ERROR", "Failed to fetch overdue action items", req.traceId);
+    }
+});
+
+app.post("/api/auth/register", async (req, res) => {
+    try {
+
+        const validatedData =
+            RegisterSchema.parse(req.body);
+
+        const existingUser =
+            await User.findOne({
+                email: validatedData.email
+            });
+
+        if (existingUser) {
+            return res.status(409).json({
+                success: false,
+                message: "User already exists"
+            });
+        }
+
+        const hashedPassword =
+            await bcrypt.hash(
+                validatedData.password,
+                10
+            );
+
+        const user = await User.create({
+            email: validatedData.email,
+            password: hashedPassword
+        });
+
+        return res.status(201).json({
+            success: true,
+            data: {
+                id: user._id,
+                email: user.email
+            }
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        return res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+    try {
+
+        const validatedData =
+            LoginSchema.parse(req.body);
+
+        const user =
+            await User.findOne({
+                email: validatedData.email
+            });
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid credentials"
+            });
+        }
+
+        const passwordMatches =
+            await bcrypt.compare(
+                validatedData.password,
+                user.password
+            );
+
+        if (!passwordMatches) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid credentials"
+            });
+        }
+
+        const token = jwt.sign(
+            {
+                userId: user._id,
+                email: user.email
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "7d"
+            }
+        );
+
+        return res.status(200).json({
+            success: true,
+            token
+        });
+
+    } catch (error) {
+
+        return res.status(400).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 

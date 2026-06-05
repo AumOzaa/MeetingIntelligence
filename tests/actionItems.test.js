@@ -1,5 +1,5 @@
 // tests/actionItems.test.js
-
+import { getAuthHeader } from "./authHelper.js";
 import request from "supertest";
 import app from "../index.js";
 
@@ -20,7 +20,7 @@ describe("Action Items", () => {
             await request(app)
                 .patch(
                     `/api/action-items/${item._id}/status`
-                )
+                ).set("Authorization", getAuthHeader())
                 .send({
                     status: "Completed"
                 });
@@ -48,7 +48,7 @@ describe("Action Items", () => {
             await request(app)
                 .patch(
                     `/api/action-items/${item._id}/status`
-                )
+                ).set("Authorization", getAuthHeader())
                 .send({
                     dueDate:
                         "2026-06-06T00:00:00.000Z"
@@ -74,7 +74,7 @@ describe("Action Items", () => {
             await request(app)
                 .get(
                     "/api/action-items/overdue"
-                );
+                ).set("Authorization", getAuthHeader());
 
         expect(response.status)
             .toBe(200);
@@ -96,7 +96,7 @@ describe("Action Items", () => {
             await request(app)
                 .get(
                     "/api/action-items?status=Completed"
-                );
+                ).set("Authorization", getAuthHeader());
 
         expect(response.status)
             .toBe(200);
