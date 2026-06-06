@@ -88,15 +88,17 @@ jwt.verify(token, SECRET)
 ## 3. AI Integration: Google Gemini 2.5 Flash
 
 ### Why Gemini 2.5 Flash
-1. **Cost-Effective** - Significantly cheaper than GPT-4; 1000x tokens ~$0.075 (vs GPT-4: $30)
+1. **Context Window** - 1M tokens context window sufficient for hour long meeting transcripts.
 
-2. **JSON Native Output** - `responseMimeType: "application/json"` ensures validated JSON without parsing errors.
+2. **Cost-Effective** - Significantly cheaper than GPT-4; 1000x tokens ~$0.075 (vs GPT-4: $30)
 
-3. **System Instructions** - Precise control over output via system prompts; consistent formatting.
+3. **JSON Native Output** - `responseMimeType: "application/json"` ensures validated JSON without parsing errors.
 
-4. **Sufficient Quality** - Excellent for structured extraction tasks; meets requirements without unnecessary cost.
+4. **System Instructions** - Precise control over output via system prompts; consistent formatting.
 
-5. **Fast** - Flash model optimized for speed without sacrificing quality for this use case.
+5. **Sufficient Quality** - Excellent for structured extraction tasks; meets requirements without unnecessary cost.
+
+6. **Fast** - Flash model optimized for speed without sacrificing quality for this use case.
 
 ### Alternatives Considered
 | Model | Reason Not Chosen |

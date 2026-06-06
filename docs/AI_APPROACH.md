@@ -190,7 +190,13 @@ Request → Zod Validate → API Handler → Gemini → Zod Validate → Databas
 
 ## Future Improvements
 
-1. **Retry with Backoff**
+1. **Knowledge Graphs**
+    - Make KGs for each meeting.
+    - Would give us second brain across all of the meetings.
+    - More logical response and even more accurate citations.
+    - But greater LLM cost + KG database cost.
+
+2. **Retry with Backoff**
    ```javascript
    // Add retry logic for transient failures
    const maxRetries = 3;
@@ -205,19 +211,20 @@ Request → Zod Validate → API Handler → Gemini → Zod Validate → Databas
    }
    ```
 
-2. **Better Citation Validation**
+3. **Better Citation Validation**
    - Compare citations against actual transcript timestamps
    - Warn if citations don't match
 
-3. **Enhanced Deduplication**
+4. **Enhanced Deduplication**
    - Use semantic similarity for task comparison
    - Consider assignee + task combination
 
-4. **Language Detection**
+5. **Language Detection**
    - Auto-detect transcript language
    - Translate to English if needed
 
-5. **User Feedback**
+6. **User Feedback**
    - Add "correct this" UI
    - Track user corrections
    - Improve future extractions
+

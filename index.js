@@ -792,6 +792,15 @@ app.get("/api/evaluation", (req, res) => {
     res.status(200).send(response);
 });
 
+app.get("/health", (req, res) => {
+
+    const response = {
+        "status": "UP"
+    }
+
+    res.status(200).send(response);
+});
+
 // await mongoose.connect(process.env.MONGO_URI);
 
 cron.schedule("* * * * *", async () => {
